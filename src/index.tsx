@@ -7,24 +7,30 @@ import { EventEmitter } from "node:events";
 const ee = new EventEmitter();
 let counter = 0;
 
+const FormButton = () => (
+  <form action="/increment" method="POST">
+    <button
+      hx-post="/increment"
+      hx-target="#counter-container"
+      hx-swap="outerHTML"
+      sse-swap="message"
+      className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md active:scale-95"
+    >
+      Increment
+    </button>
+  </form>
+);
+
 const Counter = ({ value }: { value: number }) => (
   <div
     id="counter-container"
     className="flex flex-col items-center gap-4 p-8 bg-white rounded-xl shadow-lg"
   >
     <h1 className="text-4xl font-bold text-gray-800">Counter: {value}</h1>
-    /*
+    {/*
       Button both triggers an update, targets where to update, and binds to SSE for async updates
-    */
-    <button
-      hx-post="/increment"
-      hx-target="#counter-container"
-      hx-swap="outerHTML"
-      sse-swap="message" 
-      className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md active:scale-95"
-    >
-      Increment
-    </button>
+    */}
+    <FormButton />
   </div>
 );
 
