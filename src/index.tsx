@@ -2,9 +2,10 @@ import { Elysia, sse } from "elysia";
 import { html } from "@elysiajs/html";
 import * as React from "react";
 import { renderToString } from "react-dom/server";
-import { EventEmitter } from "node:events";
+import { EventEmitter, on } from "node:events";
 
 const ee = new EventEmitter();
+ee.setMaxListeners(100); // Support up to 100 concurrent SSE clients
 let counter = 0;
 
 const FormButton = () => (
@@ -13,7 +14,6 @@ const FormButton = () => (
       hx-post="/increment"
       hx-target="#counter-container"
       hx-swap="outerHTML"
-      sse-swap="message"
       className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md active:scale-95"
     >
       Increment
@@ -40,23 +40,36 @@ const Layout = ({ children }: { children: React.ReactNode }) => (
       <meta charSet="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>Elysia React HTMX Counter</title>
-      <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-      <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/htmx.org@4.0.0-alpha6/dist/htmx.min.js"></script>
       <script src="https://cdn.tailwindcss.com"></script>
     </head>
-    <body className="bg-gray-100 min-h-screen flex items-center justify-center">
-      <div hx-ext="sse" sse-connect="/sse">
-        <div>
+    <body 
+        className="bg-gray-100 min-h-screen flex items-center justify-center"
+        hx-config='{ "sse": { "reconnect": true } }'
+    >
+        <div 
+            id="counter-wrapper"
+            hx-get="/sse" 
+            hx-trigger="load" 
+            hx-target="this" 
+            hx-swap="innerHTML"
+        >
           {children}
         </div>
-      </div>
     </body>
   </html>
 );
 
 const app = new Elysia()
   .use(html())
+  .onRequest(({ set }) => {
+    set.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate";
+    set.headers["Pragma"] = "no-cache";
+    set.headers["Expires"] = "0";
+    set.headers["Surrogate-Control"] = "no-store";
+  })
   .get("/", () => {
+    console.log("Serving initial page");
     return renderToString(
       <Layout>
         <Counter value={counter} />
@@ -65,6 +78,7 @@ const app = new Elysia()
   })
   .post("/increment", ({ headers }) => {
     counter++;
+    console.log("Incrementing counter to:", counter);
     ee.emit("update", counter);
 
     const isHtmx = headers["hx-request"] === "true";
@@ -80,25 +94,18 @@ const app = new Elysia()
     );
   })
   .get("/sse", async function* () {
-    let resolve: (value: string) => void;
-    let promise = new Promise<string>((r) => (resolve = r));
-
-    const listener = (value: number) => {
-      resolve(renderToString(<Counter value={value} />));
-      promise = new Promise<string>((r) => (resolve = r));
-    };
-
-    ee.on("update", listener);
-
+    const id = Math.random().toString(36).slice(2, 9);
+    console.log(`SSE [${id}] connection opened`);
     try {
-      while (true) {
-        const data = await promise;
+      for await (const [value] of on(ee, "update")) {
+        const data = renderToString(<Counter value={value as number} />).replace(/\r?\n/g, "");
+        console.log(`SSE [${id}] sending update:`, value);
         yield sse(data);
       }
+    } catch (err) {
+      console.error(`SSE [${id}] error:`, err);
     } finally {
-      ee.off("update", listener);
-      resolve = null!;
-      promise = null!;
+      console.log(`SSE [${id}] connection closed`);
     }
   })
   .listen(3000);
